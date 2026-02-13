@@ -4,12 +4,18 @@
 """
 import jieba
 import re
+from multiprocessing import Pool, cpu_count
 from typing import List, Dict, Any, Tuple
 from rank_bm25 import BM25Okapi
 from pymilvus import Collection, connections
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from config import settings
 from models import KnowledgeSource
+
+
+def _jieba_tokenize_one(text: str) -> List[str]:
+    """单条文本分词，供多进程 Pool.map 使用（须为模块级函数以支持 pickle）"""
+    return list(jieba.cut(text or ""))
 
 
 class MultiPathRetriever:
@@ -110,13 +116,17 @@ class MultiPathRetriever:
                         break
             
             self.bm25_docs = results
-            
-            # 分词
-            tokenized_docs = []
-            for doc in results:
-                tokens = list(jieba.cut(doc.get("content") or ""))
-                tokenized_docs.append(tokens)
-            
+
+            # 分词：多进程并行加速，文档少时直接用主进程避免进程开销
+            contents = [doc.get("content") or "" for doc in results]
+            n_docs = len(contents)
+            n_workers = min(max(1, cpu_count() - 1), n_docs, 8)
+            if n_workers <= 1 or n_docs < 100:
+                tokenized_docs = [_jieba_tokenize_one(t) for t in contents]
+            else:
+                with Pool(n_workers) as pool:
+                    tokenized_docs = pool.map(_jieba_tokenize_one, contents, chunksize=max(1, n_docs // (n_workers * 4)))
+
             # 构建BM25索引
             if tokenized_docs:
                 self.bm25_index = BM25Okapi(tokenized_docs)

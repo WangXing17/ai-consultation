@@ -275,6 +275,8 @@
 
     <script>
         let userId = 'web_user_' + Date.now();
+        // 会话 ID：服务端用此从 Redis 拉取/写入对话历史，前端只传 id 不传 history
+        let sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
         let isProcessing = false;
 
         function setQuestion(question) {
@@ -338,7 +340,7 @@
                     body: JSON.stringify({
                         question: question,
                         user_id: userId,
-                        history: []
+                        session_id: sessionId
                     })
                 });
 

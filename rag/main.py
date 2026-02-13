@@ -20,6 +20,8 @@ from models import ConsultRequest, ConsultResponse, KnowledgeSource, Incremental
 from retriever import MultiPathRetriever
 from mcp_tools import MCPToolManager
 from knowledge_base import KnowledgeBase
+from query_optimizer import optimize as optimize_query
+from chat_history import get_messages, append_turn, messages_to_history_list
 
 
 # 全局对象
@@ -137,14 +139,34 @@ def set_cache(cache_key: str, response: ConsultResponse, ttl: int = 3600):
         print(f"⚠️  缓存写入失败: {e}")
 
 
+def get_request_history(request: ConsultRequest) -> List[dict]:
+    """从 Redis 按 session_id 读取对话历史（不依赖前端传 history）"""
+    if not request.session_id or not redis_client:
+        return []
+    raw = get_messages(request.session_id, redis_client)
+    return messages_to_history_list(raw, max_turns=6)
+
+
 def build_prompt(question: str, knowledge_sources: List[KnowledgeSource], history: List) -> str:
-    """构建问诊提示词"""
+    """构建问诊提示词（history 为服务端从 Redis 拉取的最近几轮，格式 [{"role":"user"|"assistant","content":"..."}]）"""
     
     # 整理知识来源
     knowledge_text = ""
     for i, source in enumerate(knowledge_sources, 1):
         source_type = "【知识库】" if source.source == "knowledge_base" else "【联网搜索】"
         knowledge_text += f"\n{source_type} 来源{i}：\n{source.content}\n"
+    
+    # 历史对话上下文（若有）
+    history_block = ""
+    if history:
+        lines = []
+        for msg in history:
+            role = (msg.get("role") or "").strip()
+            content = (msg.get("content") or "").strip()
+            if role and content:
+                lines.append(f"{'用户' if role == 'user' else '助手'}：{content}")
+        if lines:
+            history_block = "历史对话：\n" + "\n".join(lines) + "\n\n"
     
     # 构建提示词
     system_prompt = """你是一个专业的医疗问诊助手，具备丰富的医学知识。你的任务是：
@@ -165,7 +187,7 @@ def build_prompt(question: str, knowledge_sources: List[KnowledgeSource], histor
 - 紧急情况请立即就医
 - 建议仅供参考"""
 
-    user_prompt = f"""用户问题：{question}
+    user_prompt = f"""{history_block}用户问题：{question}
 
 参考知识：
 {knowledge_text}
@@ -197,15 +219,23 @@ async def stream_response(request: ConsultRequest) -> AsyncGenerator[str, None]:
     """SSE流式响应生成器"""
     
     try:
-        # 1. 检索知识
+        # 0. 从 Redis 拉取对话历史（不依赖前端传 history）
+        history = get_request_history(request)
+
+        # 1. 提问优化（仅用于检索，回答与缓存仍用原问题）
+        retrieval_query = optimize_query(
+            request.question,
+            history=history,
+            enable_rewrite=settings.enable_query_rewrite,
+            enable_normalize=settings.enable_query_normalize,
+        )
         yield f"data: {json.dumps({'type': 'status', 'message': '正在检索医疗知识...'}, ensure_ascii=False)}\n\n"
-        
-        knowledge_sources = retriever.retrieve(request.question)
-        
+        knowledge_sources = retriever.retrieve(retrieval_query)
+
         # 2. MCP工具兜底
         if not knowledge_sources or (knowledge_sources and max([s.score for s in knowledge_sources if s.score], default=0) < 0.5):
             yield f"data: {json.dumps({'type': 'status', 'message': '知识库信息不足，正在联网搜索...'}, ensure_ascii=False)}\n\n"
-            knowledge_sources = await mcp_manager.enhance_retrieval(request.question, knowledge_sources)
+            knowledge_sources = await mcp_manager.enhance_retrieval(retrieval_query, knowledge_sources)
         
         # 3. 发送知识来源
         sources_data = [
@@ -219,8 +249,8 @@ async def stream_response(request: ConsultRequest) -> AsyncGenerator[str, None]:
         ]
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources_data}, ensure_ascii=False)}\n\n"
         
-        # 4. 构建提示词
-        system_prompt, user_prompt = build_prompt(request.question, knowledge_sources, request.history)
+        # 4. 构建提示词（使用服务端历史）
+        system_prompt, user_prompt = build_prompt(request.question, knowledge_sources, history)
         
         # 5. 流式生成回答
         yield f"data: {json.dumps({'type': 'status', 'message': '正在生成回答...'}, ensure_ascii=False)}\n\n"
@@ -252,6 +282,10 @@ async def stream_response(request: ConsultRequest) -> AsyncGenerator[str, None]:
             )
             cache_key = get_cache_key(request.user_id, request.question)
             set_cache(cache_key, response)
+
+        # 9. 将本轮对话写入 Redis（若有 session_id）
+        if request.session_id and redis_client:
+            append_turn(request.session_id, request.question, full_answer, redis_client, ttl=settings.chat_history_ttl)
     
     except Exception as e:
         error_msg = f"生成回答时出错: {str(e)}"
@@ -320,14 +354,23 @@ async def consult(request: ConsultRequest):
             return cached_response
     
     try:
-        # 1. 检索知识
-        knowledge_sources = retriever.retrieve(request.question)
-        
+        # 0. 从 Redis 拉取对话历史
+        history = get_request_history(request)
+
+        # 1. 提问优化（仅用于检索）
+        retrieval_query = optimize_query(
+            request.question,
+            history=history,
+            enable_rewrite=settings.enable_query_rewrite,
+            enable_normalize=settings.enable_query_normalize,
+        )
+        knowledge_sources = retriever.retrieve(retrieval_query)
+
         # 2. MCP工具兜底
-        knowledge_sources = await mcp_manager.enhance_retrieval(request.question, knowledge_sources)
-        
-        # 3. 构建提示词
-        system_prompt, user_prompt = build_prompt(request.question, knowledge_sources, request.history)
+        knowledge_sources = await mcp_manager.enhance_retrieval(retrieval_query, knowledge_sources)
+
+        # 3. 构建提示词（仍用原始问题，历史来自 Redis）
+        system_prompt, user_prompt = build_prompt(request.question, knowledge_sources, history)
         
         # 4. 生成回答
         messages = [
@@ -351,6 +394,10 @@ async def consult(request: ConsultRequest):
         # 7. 缓存结果
         if request.user_id:
             set_cache(cache_key, result)
+
+        # 8. 将本轮对话写入 Redis（若有 session_id）
+        if request.session_id and redis_client:
+            append_turn(request.session_id, request.question, answer, redis_client, ttl=settings.chat_history_ttl)
         
         return result
     

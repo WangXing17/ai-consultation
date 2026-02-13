@@ -14,8 +14,9 @@ class Message(BaseModel):
 class ConsultRequest(BaseModel):
     """问诊请求"""
     question: str = Field(..., description="用户病情描述或问题")
-    history: Optional[List[Message]] = Field(default=[], description="历史对话记录")
+    session_id: Optional[str] = Field(default=None, description="会话ID，用于从 Redis 拉取/写入对话历史，不传则无多轮上下文")
     user_id: Optional[str] = Field(default=None, description="用户ID，用于缓存")
+    history: Optional[List[Message]] = Field(default=None, description="已废弃：历史由服务端按 session_id 从 Redis 读取，前端无需传")
 
 
 class KnowledgeSource(BaseModel):

@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     top_k_retrieval: int = int(os.getenv("TOP_K_RETRIEVAL", "10"))
     top_k_rerank: int = int(os.getenv("TOP_K_RERANK", "3"))
     similarity_threshold: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.7"))
+
+    # 提问优化（Query Rewriting + 关键词规范化，仅用于检索，回答与缓存仍用原问题）
+    enable_query_rewrite: bool = os.getenv("ENABLE_QUERY_REWRITE", "true").lower() in ("1", "true", "yes")
+    enable_query_normalize: bool = os.getenv("ENABLE_QUERY_NORMALIZE", "true").lower() in ("1", "true", "yes")
+
+    # 对话历史（Redis 存储，按 session_id 读写）
+    chat_history_ttl: int = int(os.getenv("CHAT_HISTORY_TTL", "86400"))  # 秒，默认 24 小时
     
     # 向量维度
     embedding_dim: int = 1536  # text-embedding-ada-002的维度
