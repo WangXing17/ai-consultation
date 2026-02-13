@@ -1,0 +1,14 @@
+# 最小化依赖 - 只安装你缺少的包
+# 你已经有：langchain, langchain-openai, openai, redis, pydantic, python-dotenv, httpx
+
+# Web框架
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# 向量数据库
+pymilvus==2.3.5
+
+# 文本处理
+jieba==0.42.1
+rank-bm25==0.2.2

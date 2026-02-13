@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG智能问诊助手</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+                'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .main {
+            padding: 30px;
+        }
+
+        .chat-container {
+            height: 500px;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: #f9f9f9;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            text-align: right;
+        }
+
+        .message-content {
+            display: inline-block;
+            max-width: 70%;
+            padding: 12px 18px;
+            border-radius: 18px;
+            line-height: 1.6;
+        }
+
+        .message.user .message-content {
+            background: #667eea;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-bottom-left-radius: 4px;
+            text-align: left;
+        }
+
+        .sources {
+            margin-top: 10px;
+            padding: 10px;
+            background: #fff3cd;
+            border-left: 3px solid #ffc107;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .sources-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .source-item {
+            margin: 5px 0;
+            padding: 5px;
+            background: white;
+            border-radius: 4px;
+        }
+
+        .suggestions {
+            margin-top: 10px;
+            padding: 10px;
+            background: #d1ecf1;
+            border-left: 3px solid #17a2b8;
+            border-radius: 4px;
+        }
+
+        .suggestions-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #0c5460;
+        }
+
+        .suggestion-item {
+            margin: 5px 0;
+            padding: 5px;
+            background: white;
+            border-radius: 4px;
+        }
+
+        .status {
+            color: #888;
+            font-style: italic;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+
+        .input-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        #questionInput {
+            flex: 1;
+            padding: 12px 18px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        #questionInput:focus {
+            border-color: #667eea;
+        }
+
+        #sendBtn {
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        #sendBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        #sendBtn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .examples {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 10px;
+        }
+
+        .examples-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .example-btn {
+            display: inline-block;
+            margin: 5px;
+            padding: 8px 15px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .example-btn:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏥 RAG智能问诊助手</h1>
+            <p>基于多路召回与MCP工具兜底的医疗问诊系统</p>
+        </div>
+
+        <div class="main">
+            <div class="chat-container" id="chatContainer">
+                <div class="message assistant">
+                    <div class="message-content">
+                        <p>你好！我是智能问诊助手。</p>
+                        <p>我可以帮助你了解常见症状、疾病管理、用药指导等医疗健康问题。</p>
+                        <p style="margin-top: 10px; font-size: 12px; color: #888;">
+                            ⚠️ 提示：我的建议仅供参考，不能替代专业医生诊断。紧急情况请立即就医。
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <input 
+                    type="text" 
+                    id="questionInput" 
+                    placeholder="描述你的症状或问题..."
+                    onkeypress="if(event.key === 'Enter') sendQuestion()"
+                >
+                <button id="sendBtn" onclick="sendQuestion()">发送</button>
+            </div>
+
+            <div class="examples">
+                <div class="examples-title">💡 示例问题（点击快速发送）：</div>
+                <span class="example-btn" onclick="setQuestion('我发烧39度了怎么办？')">发烧39度怎么办？</span>
+                <span class="example-btn" onclick="setQuestion('最近总是头痛，特别是太阳穴位置')">头痛症状</span>
+                <span class="example-btn" onclick="setQuestion('高血压患者日常应该注意什么？')">高血压管理</span>
+                <span class="example-btn" onclick="setQuestion('布洛芬和对乙酰氨基酚有什么区别？')">退烧药区别</span>
+                <span class="example-btn" onclick="setQuestion('咳嗽一直不好，有痰应该怎么办？')">咳嗽有痰</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let userId = 'web_user_' + Date.now();
+        let isProcessing = false;
+
+        function setQuestion(question) {
+            document.getElementById('questionInput').value = question;
+        }
+
+        function addMessage(role, content) {
+            const chatContainer = document.getElementById('chatContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.innerHTML = content;
+            
+            messageDiv.appendChild(contentDiv);
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            
+            return messageDiv;
+        }
+
+        function addStatus(message) {
+            const chatContainer = document.getElementById('chatContainer');
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'status';
+            statusDiv.textContent = message;
+            chatContainer.appendChild(statusDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return statusDiv;
+        }
+
+        async function sendQuestion() {
+            if (isProcessing) return;
+
+            const input = document.getElementById('questionInput');
+            const sendBtn = document.getElementById('sendBtn');
+            const question = input.value.trim();
+
+            if (!question) return;
+
+            // 添加用户消息
+            addMessage('user', `<p>${question}</p>`);
+            input.value = '';
+
+            // 禁用输入
+            isProcessing = true;
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<span class="loading"></span>';
+
+            // 创建助手消息容器
+            const assistantMessage = addMessage('assistant', '<div class="loading"></div>');
+            const contentDiv = assistantMessage.querySelector('.message-content');
+
+            try {
+                const response = await fetch('http://localhost:8000/api/consult/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        question: question,
+                        user_id: userId,
+                        history: []
+                    })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let answer = '';
+                let sources = [];
+                let suggestions = [];
+
+                contentDiv.innerHTML = '<p></p>';
+                const answerP = contentDiv.querySelector('p');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+
+                                if (data.type === 'status') {
+                                    answerP.innerHTML = `<em style="color: #888;">${data.message}</em>`;
+                                }
+                                else if (data.type === 'sources') {
+                                    sources = data.sources;
+                                }
+                                else if (data.type === 'content') {
+                                    if (answer === '') {
+                                        answerP.innerHTML = '';
+                                    }
+                                    answer += data.content;
+                                    answerP.textContent = answer;
+                                }
+                                else if (data.type === 'suggestions') {
+                                    suggestions = data.suggestions;
+                                }
+                                else if (data.type === 'done') {
+                                    // 添加知识来源
+                                    if (sources.length > 0) {
+                                        const sourcesDiv = document.createElement('div');
+                                        sourcesDiv.className = 'sources';
+                                        sourcesDiv.innerHTML = '<div class="sources-title">📚 知识来源：</div>';
+                                        sources.slice(0, 3).forEach((source, idx) => {
+                                            const sourceItem = document.createElement('div');
+                                            sourceItem.className = 'source-item';
+                                            const sourceType = source.source === 'knowledge_base' ? '知识库' : '联网搜索';
+                                            sourceItem.innerHTML = `${idx + 1}. [${sourceType}] ${source.content.substring(0, 100)}...`;
+                                            sourcesDiv.appendChild(sourceItem);
+                                        });
+                                        contentDiv.appendChild(sourcesDiv);
+                                    }
+
+                                    // 添加建议
+                                    if (suggestions.length > 0) {
+                                        const suggestionsDiv = document.createElement('div');
+                                        suggestionsDiv.className = 'suggestions';
+                                        suggestionsDiv.innerHTML = '<div class="suggestions-title">💡 建议：</div>';
+                                        suggestions.forEach((suggestion, idx) => {
+                                            const suggestionItem = document.createElement('div');
+                                            suggestionItem.className = 'suggestion-item';
+                                            suggestionItem.textContent = `${idx + 1}. ${suggestion}`;
+                                            suggestionsDiv.appendChild(suggestionItem);
+                                        });
+                                        contentDiv.appendChild(suggestionsDiv);
+                                    }
+                                }
+                                else if (data.type === 'error') {
+                                    answerP.innerHTML = `<p style="color: red;">❌ 错误: ${data.message}</p>`;
+                                }
+                                else if (data.type === 'cached') {
+                                    answerP.innerHTML = `<em style="color: #888;">💾 ${data.message}</em>`;
+                                }
+                            } catch (e) {
+                                console.error('解析错误:', e);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                contentDiv.innerHTML = `<p style="color: red;">❌ 请求失败: ${error.message}<br>请确保后端服务已启动 (python main.py)</p>`;
+            } finally {
+                isProcessing = false;
+                sendBtn.disabled = false;
+                sendBtn.textContent = '发送';
+            }
+        }
+    </script>
+</body>
+</html>
