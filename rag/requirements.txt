@@ -1,13 +1,15 @@
 # 核心框架
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
-pydantic==2.5.0
+pydantic>=2.5.0,<3
+pydantic-settings>=2.0.0
 python-multipart==0.0.6
 
-# LangChain相关
+# LangChain相关（ragas 依赖 PydanticOutputParser，langchain-core 0.3+ 已不再导出，故限制 <0.3）
 langchain==0.1.4
 langchain-community==0.0.16
 langchain-openai==0.0.3
+langchain-core>=0.2.0,<0.3.0
 
 # 向量数据库
 pymilvus==2.3.5
@@ -25,3 +27,9 @@ openai==1.10.0
 # 工具和辅助
 httpx==0.26.0
 python-dotenv==1.0.0
+
+# RAG 评估 (RAGAS)
+ragas>=0.2.0
+pandas>=2.0.0
+datasets>=2.14.0
+anthropic>=0.18.0
